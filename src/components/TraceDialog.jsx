@@ -9,7 +9,7 @@ const CustomCodeBlock = ({ node, inline, className, children, ...props }) => {
   const match = /language-(\w+)/.exec(className || '');
 
   if (inline || !match) {
-    return <code className={className} {...props}>{children}</code>;
+    return <code className={`${className} break-words whitespace-pre-wrap`} {...props}>{children}</code>;
   }
 
   const getTextFromNode = (n) => {
@@ -83,6 +83,26 @@ const TraceDialog = ({ role, content, index, id }) => {
             rehypePlugins={[rehypeHighlight]}
             components={{
               code: CustomCodeBlock,
+              table: ({ node, ...props }) => (
+                <div className="overflow-x-auto my-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm" {...props} />
+                </div>
+              ),
+              thead: ({ node, ...props }) => (
+                <thead className="bg-gray-50 dark:bg-gray-800" {...props} />
+              ),
+              tbody: ({ node, ...props }) => (
+                <tbody className="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-900" {...props} />
+              ),
+              tr: ({ node, ...props }) => (
+                <tr className="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors" {...props} />
+              ),
+              th: ({ node, ...props }) => (
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider border-r border-gray-200 dark:border-gray-700 last:border-r-0" {...props} />
+              ),
+              td: ({ node, ...props }) => (
+                <td className="px-6 py-4 text-gray-700 dark:text-gray-300 border-r border-gray-200 dark:border-gray-700 last:border-r-0 break-words" {...props} />
+              ),
             }}
           >
             {content}
