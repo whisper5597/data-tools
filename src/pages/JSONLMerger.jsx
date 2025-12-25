@@ -78,6 +78,7 @@ const JSONLMerger = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    setFiles([]); // 合并成功后清空状态
   };
 
   return (
