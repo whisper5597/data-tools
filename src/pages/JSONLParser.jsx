@@ -15,6 +15,29 @@ const JSONLParser = () => {
   const [currentLineIndex, setCurrentLineIndex] = useState(0);
   const [goToLine, setGoToLine] = useState("");
   const [goToIndex, setGoToIndex] = useState("");
+  const [copyStatus, setCopyStatus] = useState("复制");
+
+  const handleCopy = () => {
+    if (selectedValue === null || selectedValue === undefined) return;
+
+    const textToCopy =
+      typeof selectedValue === "object"
+        ? JSON.stringify(selectedValue, null, 2)
+        : String(selectedValue);
+
+    navigator.clipboard.writeText(textToCopy).then(
+      () => {
+        setCopyStatus("已复制!");
+        setTimeout(() => setCopyStatus("复制"), 1000);
+      },
+      (err) => {
+        console.error("Could not copy text: ", err);
+        setCopyStatus("失败");
+        setTimeout(() => setCopyStatus("复制"), 1000);
+      }
+    );
+  };
+
 
   const parsedJson = useMemo(() => {
     if (!content) return null;
@@ -263,7 +286,16 @@ const JSONLParser = () => {
                 })()}
               </div>
               <div className="w-1/2 p-4 overflow-auto">
-                <h2 className="text-lg font-semibold mb-2">内容</h2>
+                <div className="flex justify-between items-center mb-2">
+                  <h2 className="text-lg font-semibold">内容</h2>
+                  <button
+                    className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50"
+                    onClick={handleCopy}
+                    disabled={selectedValue === null || selectedValue === undefined}
+                  >
+                    {copyStatus}
+                  </button>
+                </div>
                 <div className="whitespace-pre-wrap bg-gray-50 dark:bg-gray-800 p-4 rounded">
                   <ValueRenderer value={selectedValue} />
                 </div>
