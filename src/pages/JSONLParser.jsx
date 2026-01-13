@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect, useMemo } from "react";
 import SideNav from "../components/SideNav";
 import JsonNode from "../components/JsonNode";
 import TraceDialog from "../components/TraceDialog";
+import ValueRenderer from "../components/ValueRenderer";
 
 const JSONLParser = () => {
   const [mode, setMode] = useState("normal"); // 'normal' or 'trace'
@@ -264,9 +265,7 @@ const JSONLParser = () => {
               <div className="w-1/2 p-4 overflow-auto">
                 <h2 className="text-lg font-semibold mb-2">内容</h2>
                 <div className="whitespace-pre-wrap bg-gray-50 dark:bg-gray-800 p-4 rounded">
-                  {selectedValue !== null
-                    ? String(selectedValue)
-                    : "在左侧选择一个值以在此处显示。"}
+                  <ValueRenderer value={selectedValue} />
                 </div>
               </div>
             </div>
