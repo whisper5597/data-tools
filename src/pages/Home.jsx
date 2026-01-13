@@ -3,12 +3,9 @@ import { Link } from 'react-router-dom';
 import ToolCard from '../components/ToolCard';
 
 const Home = () => {
-  const [backgroundUrl, setBackgroundUrl] = useState('');
   const [maskOpacity, setMaskOpacity] = useState(0.4);
 
-  useEffect(() => {
-    setBackgroundUrl('https://api.oick.cn/api/bing');
-  }, []);
+  const backgroundUrl = 'https://api.oick.cn/api/bing';
 
   useEffect(() => {
     const img = new Image();

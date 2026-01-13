@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const JsonNode = ({ nodeKey, value, onSelect }) => {
+const JsonNode = ({ nodeKey, value, onSelect, path = [] }) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
   const isObject = typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -12,7 +12,7 @@ const JsonNode = ({ nodeKey, value, onSelect }) => {
 
   const handleSelect = () => {
     if (!isObject && !isArray) {
-      onSelect(value);
+      onSelect({ value, path: [...path, nodeKey] });
     }
   };
 
@@ -41,7 +41,7 @@ const JsonNode = ({ nodeKey, value, onSelect }) => {
         {isExpanded && (
           <div className="ml-4 border-l border-gray-300 dark:border-gray-600">
             {Object.entries(value).map(([key, childValue]) => (
-              <JsonNode key={key} nodeKey={key} value={childValue} onSelect={onSelect} />
+              <JsonNode key={key} nodeKey={key} value={childValue} onSelect={onSelect} path={[...path, nodeKey]} />
             ))}
           </div>
         )}
