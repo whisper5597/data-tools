@@ -20,10 +20,17 @@ const MergerIcon = (props) => (
   </svg>
 );
 
+const FilterIcon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M10 18h4v-2h-4v2zM3 6v2h18V6H3zm3 7h12v-2H6v2z" />
+  </svg>
+);
+
 const navItems = [
   { to: '/', text: '首页', icon: HomeIcon },
   { to: '/jsonl-parser', text: 'JSONL 解析', icon: ParserIcon },
   { to: '/jsonl-merger', text: 'JSONL 文件合并', icon: MergerIcon },
+  { to: '/jsonl-filter', text: 'JSONL 条件过滤', icon: FilterIcon },
 ];
 
 const SideNav = () => {

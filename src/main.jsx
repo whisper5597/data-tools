@@ -5,6 +5,7 @@ import App from './App.jsx';
 import Home from './pages/Home.jsx';
 import JSONLParser from './pages/JSONLParser.jsx';
 import JSONLMerger from './pages/JSONLMerger.jsx';
+import JSONLFilter from './pages/JSONLFilter.jsx';
 import './index.css';
 import 'highlight.js/styles/github-dark.css';
 
@@ -24,6 +25,10 @@ const router = createHashRouter([
       {
         path: 'jsonl-merger',
         element: <JSONLMerger />,
+      },
+      {
+        path: 'jsonl-filter',
+        element: <JSONLFilter />,
       },
     ],
   },

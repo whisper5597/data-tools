@@ -66,6 +66,9 @@ const Home = () => {
             <Link to="/jsonl-merger">
               <ToolCard title="JSONL 文件合并" />
             </Link>
+            <Link to="/jsonl-filter">
+              <ToolCard title="JSONL 条件过滤" />
+            </Link>
           </div>
         </div>
       </main>
