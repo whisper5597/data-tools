@@ -26,11 +26,18 @@ const FilterIcon = (props) => (
   </svg>
 );
 
+const ConverterIcon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z" />
+  </svg>
+);
+
 const navItems = [
   { to: '/', text: '首页', icon: HomeIcon },
   { to: '/jsonl-parser', text: 'JSONL 解析', icon: ParserIcon },
   { to: '/jsonl-merger', text: 'JSONL 文件合并', icon: MergerIcon },
   { to: '/jsonl-filter', text: 'JSONL 条件过滤', icon: FilterIcon },
+  { to: '/format-converter', text: '格式转换', icon: ConverterIcon },
 ];
 
 const SideNav = () => {

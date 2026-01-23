@@ -69,6 +69,9 @@ const Home = () => {
             <Link to="/jsonl-filter">
               <ToolCard title="JSONL 条件过滤" />
             </Link>
+            <Link to="/format-converter">
+              <ToolCard title="格式转换" />
+            </Link>
           </div>
         </div>
       </main>

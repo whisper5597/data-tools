@@ -6,6 +6,7 @@ import Home from './pages/Home.jsx';
 import JSONLParser from './pages/JSONLParser.jsx';
 import JSONLMerger from './pages/JSONLMerger.jsx';
 import JSONLFilter from './pages/JSONLFilter.jsx';
+import FormatConverter from './pages/FormatConverter.jsx';
 import './index.css';
 import 'highlight.js/styles/github-dark.css';
 
@@ -29,6 +30,10 @@ const router = createHashRouter([
       {
         path: 'jsonl-filter',
         element: <JSONLFilter />,
+      },
+      {
+        path: 'format-converter',
+        element: <FormatConverter />,
       },
     ],
   },
