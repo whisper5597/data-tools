@@ -1,4 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { GripVertical } from 'lucide-react';
 import dayjs from 'dayjs';
 import * as XLSX from 'xlsx';
 
@@ -11,10 +15,94 @@ const formatBytes = (bytes, decimals = 2) => {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
 
+const SortableFieldItem = ({ id, field, index, onToggle, onRename }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 1 : 'auto',
+    boxShadow: isDragging ? '0 4px 8px rgba(0,0,0,0.1)' : 'none',
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center space-x-3 p-2 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+      <div {...attributes} {...listeners} className="cursor-grab touch-none p-1">
+        <GripVertical size={16} className="text-gray-400" />
+      </div>
+      <input
+        type="checkbox"
+        checked={field.isSelected}
+        onChange={() => onToggle(index)}
+        className="h-4 w-4 rounded text-blue-600 focus:ring-blue-500 border-gray-300"
+      />
+      <label className="flex-1 text-sm font-medium truncate" title={field.name}>{field.name}</label>
+      <label htmlFor={`custom-name-${index}`} className="text-sm text-gray-500 dark:text-gray-400">自定义表头:</label>
+      <input
+        id={`custom-name-${index}`}
+        type="text"
+        value={field.customName}
+        onChange={(e) => onRename(index, e.target.value)}
+        placeholder={field.name}
+        className="w-1/3 p-1 text-sm border rounded bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 focus:ring-blue-500 focus:border-blue-500"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>
+  );
+};
+
 const JsonlToXlsx = () => {
   const [file, setFile] = useState(null);
+  const [fields, setFields] = useState([]);
   const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState('');
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    })
+  );
+
+  useEffect(() => {
+    const extractFields = async () => {
+      if (!file) {
+        setFields([]);
+        return;
+      }
+      try {
+        const text = await file.text();
+        const lines = text.trim().split('\n').slice(0, 100);
+        const allKeys = new Set();
+        lines.forEach(line => {
+          if (!line.trim()) return;
+          try {
+            const parsed = JSON.parse(line);
+            Object.keys(parsed).forEach(key => allKeys.add(key));
+          } catch (e) {
+            console.error('Error parsing line for field extraction:', e);
+          }
+        });
+        const sortedKeys = Array.from(allKeys).sort();
+        setFields(sortedKeys.map(name => ({
+          name,
+          isSelected: true,
+          customName: name,
+        })));
+      } catch (e) {
+        setError(`提取字段时出错: ${e.message}`);
+      }
+    };
+    extractFields();
+  }, [file]);
 
   const handleDrop = useCallback((event) => {
     event.preventDefault();
@@ -41,25 +129,40 @@ const JsonlToXlsx = () => {
       return;
     }
 
+    const selectedFields = fields.filter(f => f.isSelected);
+    if (selectedFields.length === 0) {
+        setError('请至少选择一个字段进行转换。');
+        return;
+    }
+
     setIsConverting(true);
     setError('');
 
     try {
       const text = await file.text();
       const lines = text.trim().split('\n').filter(l => l.trim());
+      
+      const headerMapping = selectedFields.reduce((acc, field) => {
+          acc[field.name] = field.customName || field.name;
+          return acc;
+      }, {});
+      const selectedKeys = selectedFields.map(f => f.name);
+
       const data = lines.map(line => {
           try {
               const parsed = JSON.parse(line);
-              // 只做一级展开
-              const flatData = {};
-              for (const key in parsed) {
-                  if (typeof parsed[key] === 'object' && parsed[key] !== null) {
-                      flatData[key] = JSON.stringify(parsed[key]);
-                  } else {
-                      flatData[key] = parsed[key];
+              const newObject = {};
+              for (const key of selectedKeys) {
+                  if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+                      const newKey = headerMapping[key];
+                      if (typeof parsed[key] === 'object' && parsed[key] !== null) {
+                          newObject[newKey] = JSON.stringify(parsed[key]);
+                      } else {
+                          newObject[newKey] = parsed[key];
+                      }
                   }
               }
-              return flatData;
+              return newObject;
           } catch (e) {
               console.error('Error parsing JSON line:', e);
               return {};
@@ -79,6 +182,37 @@ const JsonlToXlsx = () => {
     setIsConverting(false);
   };
 
+  const handleFieldToggle = (index) => {
+    const newFields = [...fields];
+    newFields[index].isSelected = !newFields[index].isSelected;
+    setFields(newFields);
+  };
+
+  const handleRenameField = (index, newName) => {
+      const newFields = [...fields];
+      newFields[index].customName = newName;
+      setFields(newFields);
+  };
+
+  const handleSelectAll = () => {
+      setFields(fields.map(f => ({ ...f, isSelected: true })));
+  };
+
+  const handleClearAll = () => {
+      setFields(fields.map(f => ({ ...f, isSelected: false })));
+  };
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (active.id !== over.id) {
+      setFields((items) => {
+        const oldIndex = items.findIndex(item => item.name === active.id);
+        const newIndex = items.findIndex(item => item.name === over.id);
+        return arrayMove(items, oldIndex, newIndex);
+      });
+    }
+  };
+
   const renderFileDropzone = () => (
     <div
       onDrop={handleDrop}
@@ -96,13 +230,45 @@ const JsonlToXlsx = () => {
     </div>
   );
 
+  const renderFieldSelection = () => (
+    <div className="space-y-4">
+        <div className="flex justify-between items-center">
+            <h3 className="text-lg font-semibold">自定义转换字段</h3>
+            <div className="space-x-2">
+                <button onClick={handleSelectAll} className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600">全选</button>
+                <button onClick={handleClearAll} className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600">清空</button>
+            </div>
+        </div>
+        <div className="p-2 border rounded-lg bg-gray-100 dark:bg-gray-900 border-gray-300 dark:border-gray-600">
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={fields.map(f => f.name)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-2 max-h-72 overflow-y-auto">
+                {fields.map((field, index) => (
+                  <SortableFieldItem
+                    key={field.name}
+                    id={field.name}
+                    field={field}
+                    index={index}
+                    onToggle={handleFieldToggle}
+                    onRename={handleRenameField}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </div>
+    </div>
+  );
+
   return (
     <div className="space-y-6">
       {renderFileDropzone()}
+
+      {fields.length > 0 && renderFieldSelection()}
       
       <button
         onClick={handleConvert}
-        disabled={isConverting || !file}
+        disabled={isConverting || !file || fields.filter(f => f.isSelected).length === 0}
         className="w-full py-3 px-4 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
       >
         {isConverting ? '转换中...' : '转换为 XLSX'}
