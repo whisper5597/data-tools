@@ -5,6 +5,7 @@ import { DndContext, closestCenter, PointerSensor, useSensor, useSensors } from 
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical } from 'lucide-react';
+import { Select } from 'antd';
 
 const formatBytes = (bytes, decimals = 2) => {
   if (bytes === 0) return '0 Bytes';
@@ -64,6 +65,7 @@ const XlsxToJsonl = () => {
   const [isConverting, setIsConverting] = useState(false);
   const [error, setError] = useState('');
   const [sheetName, setSheetName] = useState('');
+  const [sheetNames, setSheetNames] = useState([]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -74,34 +76,50 @@ const XlsxToJsonl = () => {
   );
 
   useEffect(() => {
-    const extractHeaders = async () => {
+    const extractHeadersAndSheetNames = async () => {
       if (!file) {
         setFields([]);
+        setSheetNames([]);
+        setSheetName('');
         return;
       }
       try {
         const data = await file.arrayBuffer();
         const workbook = XLSX.read(data, { type: 'array' });
-        const targetSheetName = sheetName || workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[targetSheetName];
-        if (!worksheet) {
-          setFields([]);
-          setError(`Sheet "${targetSheetName}" not found.`);
-          return;
+        const newSheetNames = workbook.SheetNames;
+        setSheetNames(newSheetNames);
+
+        let targetSheetName = sheetName;
+        if (!targetSheetName || !newSheetNames.includes(targetSheetName)) {
+          targetSheetName = newSheetNames[0] || '';
+          setSheetName(targetSheetName);
         }
-        const header = (XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0] || []);
-        setFields(header.map(name => ({
-          name,
-          isSelected: true,
-          customName: name,
-        })));
-        setError('');
+        
+        if (targetSheetName) {
+          const worksheet = workbook.Sheets[targetSheetName];
+          if (!worksheet) {
+            setFields([]);
+            setError(`Sheet "${targetSheetName}" not found.`);
+            return;
+          }
+          const header = (XLSX.utils.sheet_to_json(worksheet, { header: 1 })[0] || []);
+          setFields(header.map(name => ({
+            name,
+            isSelected: true,
+            customName: name,
+          })));
+          setError('');
+        } else {
+          setFields([]);
+          setError('XLSX 文件中没有找到任何 sheet 页。');
+        }
       } catch (e) {
         setError(`提取表头时出错: ${e.message}`);
         setFields([]);
+        setSheetNames([]);
       }
     };
-    extractHeaders();
+    extractHeadersAndSheetNames();
   }, [file, sheetName]);
 
   const handleDrop = useCallback((event) => {
@@ -114,6 +132,7 @@ const XlsxToJsonl = () => {
       alert('只接受 .xlsx 文件。');
       return;
     }
+    setSheetName('');
     setFile(targetFile);
     setError('');
   }, []);
@@ -276,13 +295,13 @@ const XlsxToJsonl = () => {
       <div className="space-y-4">
         <div className="flex items-center space-x-4">
           <label htmlFor="sheetName" className="text-gray-700 dark:text-gray-300">Sheet 名称:</label>
-          <input
+          <Select
             id="sheetName"
-            type="text"
             value={sheetName}
-            onChange={(e) => setSheetName(e.target.value)}
-            placeholder="默认为第一页"
-            className="p-2 border rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-200 dark:border-gray-600"
+            onChange={(value) => setSheetName(value)}
+            style={{ width: 240 }}
+            disabled={sheetNames.length === 0}
+            options={sheetNames.map(name => ({ value: name, label: name }))}
           />
         </div>
       </div>
