@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import ToolCard from '../components/ToolCard';
 
 const Home = () => {
-  const [maskOpacity, setMaskOpacity] = useState(0.4);
+  const [maskOpacity, setMaskOpacity] = useState(0);
 
   const backgroundUrl = 'https://api.oick.cn/api/bing';
 
