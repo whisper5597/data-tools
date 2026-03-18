@@ -184,9 +184,7 @@ const XlsxToJsonl = () => {
               value = cell.l.Target;
             }
             
-            if (value !== undefined) {
-              obj[field.customName] = value;
-            }
+            obj[field.customName] = value === undefined ? "" : value;
           }
         });
         return obj;
