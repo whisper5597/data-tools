@@ -34,6 +34,28 @@ export default function ValueRenderer({ value }) {
     }
   };
 
+  const isHtml = (str) => {
+    if (typeof str !== "string") return false;
+
+    const trimmed = str.trim();
+
+    // ✅ 更宽松一点：允许前面有空白/BOM/注释
+    if (!/<!DOCTYPE html>/i.test(trimmed)) return false;
+
+    // ✅ 用解析兜底
+    const doc = new DOMParser().parseFromString(trimmed, "text/html");
+
+    return doc.documentElement?.tagName.toLowerCase() === "html";
+  };
+
+  const openHtmlInNewTab = () => {
+    const newWindow = window.open("", "_blank");
+    if (newWindow) {
+      newWindow.document.write(value);
+      newWindow.document.close();
+    }
+  };
+
   if (value === null || value === undefined) {
     return "在左侧选择一个值以在此处显示。";
   }
@@ -64,6 +86,28 @@ export default function ValueRenderer({ value }) {
         >
           {value}
         </a>
+      </div>
+    );
+  }
+
+  if (isHtml(value)) {
+    return (
+      <div className="flex flex-col border rounded-md overflow-hidden shadow-sm my-2 border-gray-200">
+        <div className="flex items-center justify-between px-3 py-2 bg-gray-50 border-b border-gray-200">
+          <span className="text-xs font-semibold text-gray-500 uppercase">HTML Preview</span>
+          <button
+            type="button"
+            onClick={openHtmlInNewTab}
+            className="px-3 py-1 text-xs font-medium bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors shadow-sm"
+          >
+            在新标签页中查看
+          </button>
+        </div>
+        <div className="p-3 bg-white overflow-auto max-h-[450px]">
+          <pre className="text-xs text-gray-700 whitespace-pre-wrap break-all font-mono m-0">
+            {value}
+          </pre>
+        </div>
       </div>
     );
   }
