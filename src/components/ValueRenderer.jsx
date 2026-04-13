@@ -17,7 +17,7 @@ export default function ValueRenderer({ value }) {
 
   const isImageUrl = (url) => {
     if (typeof url !== "string") return false;
-    return /\.(jpg|jpeg|png|gif|bmp|svg)$/i.test(url);
+    return /\.(jpg|jpeg|png|gif|bmp|svg|webp)$/i.test(url);
   };
 
   const isBase64Image = (string) => {
