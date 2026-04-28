@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import ToolCard from '../components/ToolCard';
 
@@ -59,7 +59,7 @@ const Home = () => {
             有 good idea 可点击此处通过飞书留言～
           </a>
           
-          <div className="flex justify-center items-center gap-8">
+          <div className="flex justify-center items-center gap-8 flex-wrap">
             <Link to="/jsonl-parser">
               <ToolCard title="JSONL 解析器" />
             </Link>
@@ -68,6 +68,9 @@ const Home = () => {
             </Link>
             <Link to="/jsonl-filter">
               <ToolCard title="JSONL 条件过滤" />
+            </Link>
+            <Link to="/jsonl-splitter">
+              <ToolCard title="JSONL 按行切分" />
             </Link>
             <Link to="/format-converter">
               <ToolCard title="格式转换" />

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 
 // --- SVG Icons ---
@@ -26,6 +26,12 @@ const FilterIcon = (props) => (
   </svg>
 );
 
+const SplitterIcon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M4 6h16v2H4V6zm0 5h7v2H4v-2zm0 5h16v2H4v-2zm11-6 5 3-5 3v-6z" />
+  </svg>
+);
+
 const ConverterIcon = (props) => (
   <svg {...props} viewBox="0 0 24 24" fill="currentColor">
     <path d="M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z" />
@@ -37,6 +43,7 @@ const navItems = [
   { to: '/jsonl-parser', text: 'JSONL 解析', icon: ParserIcon },
   { to: '/jsonl-merger', text: 'JSONL 文件合并', icon: MergerIcon },
   { to: '/jsonl-filter', text: 'JSONL 条件过滤', icon: FilterIcon },
+  { to: '/jsonl-splitter', text: 'JSONL 按行切分', icon: SplitterIcon },
   { to: '/format-converter', text: '格式转换', icon: ConverterIcon },
 ];
 
