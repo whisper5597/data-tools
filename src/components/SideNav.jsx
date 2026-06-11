@@ -38,6 +38,12 @@ const ConverterIcon = (props) => (
   </svg>
 );
 
+const ImageIcon = (props) => (
+  <svg {...props} viewBox="0 0 24 24" fill="currentColor">
+    <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 11.5l2.5 3.01L14.5 10l4.5 6H5l3.5-4.5z" />
+  </svg>
+);
+
 const navItems = [
   { to: '/', text: '首页', icon: HomeIcon },
   { to: '/jsonl-parser', text: 'JSONL 解析', icon: ParserIcon },
@@ -45,6 +51,7 @@ const navItems = [
   { to: '/jsonl-filter', text: 'JSONL 条件过滤', icon: FilterIcon },
   { to: '/jsonl-splitter', text: 'JSONL 按行切分', icon: SplitterIcon },
   { to: '/format-converter', text: '格式转换', icon: ConverterIcon },
+  { to: '/image-base64-converter', text: '图片 Base64 转换', icon: ImageIcon },
 ];
 
 const SideNav = () => {

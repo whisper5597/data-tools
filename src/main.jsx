@@ -8,6 +8,7 @@ import JSONLMerger from './pages/JSONLMerger.jsx';
 import JSONLFilter from './pages/JSONLFilter.jsx';
 import JSONLSplitter from './pages/JSONLSplitter.jsx';
 import FormatConverter from './pages/FormatConverter.jsx';
+import ImageBase64Converter from './pages/ImageBase64Converter.jsx';
 import './index.css';
 import 'highlight.js/styles/github-dark.css';
 
@@ -39,6 +40,10 @@ const router = createHashRouter([
       {
         path: 'format-converter',
         element: <FormatConverter />,
+      },
+      {
+        path: 'image-base64-converter',
+        element: <ImageBase64Converter />,
       },
     ],
   },

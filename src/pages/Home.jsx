@@ -75,6 +75,9 @@ const Home = () => {
             <Link to="/format-converter">
               <ToolCard title="格式转换" />
             </Link>
+            <Link to="/image-base64-converter">
+              <ToolCard title="图片 Base64 转换" />
+            </Link>
           </div>
         </div>
       </main>
