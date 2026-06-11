@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import SideNav from '../components/SideNav';
 
 const MIME_OPTIONS = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/svg+xml'];
+const MIN_PLAIN_BASE64_LENGTH = 80;
 
 const mimeToExtension = (mimeType) => {
   const map = {
@@ -31,6 +32,77 @@ const getDataUrlMeta = (dataUrl) => {
   };
 };
 
+const normalizeBase64 = (value) => value.replace(/\s/g, '');
+
+const guessImageMimeType = (base64) => {
+  const normalized = normalizeBase64(base64);
+  if (normalized.startsWith('iVBORw0KGgo')) return 'image/png';
+  if (normalized.startsWith('/9j/')) return 'image/jpeg';
+  if (normalized.startsWith('R0lGOD')) return 'image/gif';
+  if (normalized.startsWith('UklGR')) return 'image/webp';
+  if (normalized.startsWith('PHN2Zy') || normalized.startsWith('PD94bWwg')) {
+    return 'image/svg+xml';
+  }
+  return '';
+};
+
+const formatBase64Length = (length) => {
+  if (length >= 1024 * 1024) {
+    return `${(length / 1024 / 1024).toFixed(2)} MB`;
+  }
+  if (length >= 1024) {
+    return `${(length / 1024).toFixed(2)} KB`;
+  }
+  return `${length} B`;
+};
+
+const createCandidate = (dataUrl, source, index) => {
+  const meta = getDataUrlMeta(dataUrl);
+  if (!meta || !meta.mimeType.startsWith('image/')) return null;
+
+  const base64 = normalizeBase64(meta.base64);
+  return {
+    id: `${source}-${index}-${base64.length}`,
+    dataUrl: `data:${meta.mimeType};base64,${base64}`,
+    mimeType: meta.mimeType,
+    base64Length: base64.length,
+    source,
+  };
+};
+
+const extractImageBase64Candidates = (text) => {
+  const candidates = [];
+  const seen = new Set();
+  const dataUrlRegex = /data:image\/(?:png|jpe?g|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=\r\n]+/gi;
+
+  for (const match of text.matchAll(dataUrlRegex)) {
+    const dataUrl = match[0].replace(/image\/jpg/i, 'image/jpeg');
+    const candidate = createCandidate(dataUrl, 'data-url', candidates.length + 1);
+    if (candidate && !seen.has(candidate.dataUrl)) {
+      seen.add(candidate.dataUrl);
+      candidates.push(candidate);
+    }
+  }
+
+  const plainBase64Regex = /[A-Za-z0-9+/=]{80,}/g;
+  for (const match of text.matchAll(plainBase64Regex)) {
+    const base64 = normalizeBase64(match[0]);
+    if (base64.length < MIN_PLAIN_BASE64_LENGTH) continue;
+
+    const guessedMimeType = guessImageMimeType(base64);
+    if (!guessedMimeType) continue;
+
+    const dataUrl = `data:${guessedMimeType};base64,${base64}`;
+    const candidate = createCandidate(dataUrl, 'plain-base64', candidates.length + 1);
+    if (candidate && !seen.has(candidate.dataUrl)) {
+      seen.add(candidate.dataUrl);
+      candidates.push(candidate);
+    }
+  }
+
+  return candidates;
+};
+
 const ImageBase64Converter = () => {
   const [urlInput, setUrlInput] = useState('');
   const [base64Input, setBase64Input] = useState('');
@@ -42,7 +114,9 @@ const ImageBase64Converter = () => {
   const [status, setStatus] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [copyStatus, setCopyStatus] = useState('复制 Base64');
+  const [extractCandidates, setExtractCandidates] = useState([]);
   const fileInputRef = useRef(null);
+  const pasteZoneRef = useRef(null);
 
   const base64Output = useMemo(() => {
     const meta = getDataUrlMeta(dataUrl);
@@ -64,6 +138,74 @@ const ImageBase64Converter = () => {
     setMimeType(meta.mimeType);
     setSourceName(nextSourceName);
   }, []);
+
+  const applyExtractCandidate = useCallback(
+    (candidate, index) => {
+      try {
+        updateResult(candidate.dataUrl, `extracted-image-${index + 1}`);
+        setBase64Input(candidate.dataUrl);
+        setStatus(
+          `已应用候选 ${index + 1}：${candidate.mimeType}，Base64 长度 ${formatBase64Length(
+            candidate.base64Length
+          )}。`
+        );
+      } catch (nextError) {
+        setError(nextError.message || '候选内容不是有效图片 Base64。');
+      }
+    },
+    [updateResult]
+  );
+
+  const handleExtractFromText = useCallback(() => {
+    resetMessage();
+    const sourceText = base64Input.trim();
+    if (!sourceText) {
+      setExtractCandidates([]);
+      setError('请输入包含 Base64 的文本。');
+      return;
+    }
+
+    const candidates = extractImageBase64Candidates(sourceText);
+    setExtractCandidates(candidates);
+
+    if (candidates.length === 0) {
+      setError('未从文本中识别到图片 Base64。标准 data:image/...;base64,... 或常见图片 Base64 前缀更容易被识别。');
+      return;
+    }
+
+    if (candidates.length === 1) {
+      applyExtractCandidate(candidates[0], 0);
+      return;
+    }
+
+    setStatus(`已识别到 ${candidates.length} 个图片 Base64 候选，请选择一个进行预览。`);
+  }, [applyExtractCandidate, base64Input]);
+
+  const convertBase64Text = useCallback(
+    (text = base64Input) => {
+      resetMessage();
+      const trimmed = text.trim();
+      if (!trimmed) {
+        setError('请输入 Base64 内容。');
+        return false;
+      }
+
+      const normalized = trimmed.startsWith('data:')
+        ? trimmed
+        : `data:${fallbackMimeType};base64,${trimmed.replace(/\s/g, '')}`;
+
+      try {
+        updateResult(normalized, 'base64-image');
+        setBase64Input(trimmed);
+        setStatus('已将 Base64 转为图片预览。');
+        return true;
+      } catch (nextError) {
+        setError(nextError.message || 'Base64 格式不正确。');
+        return false;
+      }
+    },
+    [base64Input, fallbackMimeType, updateResult]
+  );
 
   const handleFile = useCallback(
     async (file) => {
@@ -88,8 +230,46 @@ const ImageBase64Converter = () => {
     [updateResult]
   );
 
+  const handlePaste = useCallback(
+    async (event) => {
+      resetMessage();
+      const items = Array.from(event.clipboardData?.items || []);
+      const imageItem = items.find((item) => item.type.startsWith('image/'));
+
+      if (imageItem) {
+        event.preventDefault();
+        const file = imageItem.getAsFile();
+        if (file) {
+          await handleFile(file);
+          setSourceName('pasted-image');
+          setStatus('已从粘贴的图片生成 Base64。');
+          return;
+        }
+      }
+
+      const text = event.clipboardData?.getData('text/plain');
+      if (text?.trim()) {
+        event.preventDefault();
+        if (convertBase64Text(text)) {
+          setStatus('已从粘贴的 Base64 文本生成图片预览。');
+        }
+        return;
+      }
+
+      setError('粘贴内容中没有可用的图片或 Base64 文本。');
+    },
+    [convertBase64Text, handleFile]
+  );
+
   const handleClipboardRead = async () => {
     resetMessage();
+
+    if (!document.hasFocus()) {
+      pasteZoneRef.current?.focus();
+      setError('当前页面未获得焦点，请先点击下方粘贴区域，或直接按 Cmd+V 粘贴图片。');
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -120,7 +300,13 @@ const ImageBase64Converter = () => {
       setError('剪切板中没有可用的图片或 Base64 文本。');
     } catch (nextError) {
       console.error('Read clipboard failed:', nextError);
-      setError('读取剪切板失败，请确认浏览器权限或手动粘贴。');
+      if (nextError.name === 'NotAllowedError') {
+        setError('浏览器拒绝读取剪切板，请点击下方粘贴区域后按 Cmd+V，或检查剪切板权限。');
+      } else if (!navigator.clipboard?.read) {
+        setError('当前浏览器不支持直接读取剪切板图片，请使用 Cmd+V 粘贴或选择本地文件。');
+      } else {
+        setError('读取剪切板失败，请确认浏览器权限或手动粘贴。');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -154,29 +340,6 @@ const ImageBase64Converter = () => {
       setError('读取图片链接失败，可能是链接无效或目标站点未允许跨域访问。');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const convertBase64Text = (text = base64Input) => {
-    resetMessage();
-    const trimmed = text.trim();
-    if (!trimmed) {
-      setError('请输入 Base64 内容。');
-      return;
-    }
-
-    const normalized = trimmed.startsWith('data:')
-      ? trimmed
-      : `data:${fallbackMimeType};base64,${trimmed.replace(/\s/g, '')}`;
-
-    try {
-      updateResult(normalized, 'base64-image');
-      setBase64Input(trimmed);
-      setStatus('已将 Base64 转为图片预览。');
-      return true;
-    } catch (nextError) {
-      setError(nextError.message || 'Base64 格式不正确。');
-      return false;
     }
   };
 
@@ -238,14 +401,30 @@ const ImageBase64Converter = () => {
 
               <div>
                 <label className="block text-sm font-medium mb-2">剪切板图片</label>
-                <button
-                  type="button"
-                  className="px-4 py-2 rounded bg-blue-500 text-white disabled:opacity-50"
-                  onClick={handleClipboardRead}
-                  disabled={isLoading}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded bg-blue-500 text-white disabled:opacity-50"
+                    onClick={handleClipboardRead}
+                    disabled={isLoading}
+                  >
+                    从剪切板读取
+                  </button>
+                  <span className="text-sm text-gray-500">
+                    如果按钮不可用，请点击下面区域后按 Cmd+V。
+                  </span>
+                </div>
+                <div
+                  ref={pasteZoneRef}
+                  role="textbox"
+                  tabIndex={0}
+                  onPaste={handlePaste}
+                  className="mt-3 p-4 border-2 border-dashed rounded-lg bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 focus:outline-none focus:border-blue-500"
                 >
-                  从剪切板读取
-                </button>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    点击此区域后按 Cmd+V，可直接粘贴图片或 Base64 文本。
+                  </p>
+                </div>
               </div>
 
               <div>
@@ -303,11 +482,14 @@ const ImageBase64Converter = () => {
               <textarea
                 className="w-full min-h-40 p-3 border rounded-lg bg-gray-50 dark:bg-gray-900 border-gray-300 dark:border-gray-600 font-mono text-sm"
                 value={base64Input}
-                onChange={(event) => setBase64Input(event.target.value)}
-                placeholder="粘贴 data:image/png;base64,... 或纯 Base64 内容"
+                onChange={(event) => {
+                  setBase64Input(event.target.value);
+                  setExtractCandidates([]);
+                }}
+                placeholder="可粘贴 data:image/png;base64,...、纯 Base64，或包含图片 Base64 的大段文本"
               />
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   className="px-4 py-2 rounded bg-blue-500 text-white disabled:opacity-50"
@@ -318,15 +500,40 @@ const ImageBase64Converter = () => {
                 </button>
                 <button
                   type="button"
+                  className="px-4 py-2 rounded bg-blue-500 text-white disabled:opacity-50"
+                  onClick={handleExtractFromText}
+                  disabled={isLoading}
+                >
+                  从文本提取
+                </button>
+                <button
+                  type="button"
                   className="px-4 py-2 rounded bg-gray-200 dark:bg-gray-700"
                   onClick={() => {
                     setBase64Input('');
+                    setExtractCandidates([]);
                     resetMessage();
                   }}
                 >
                   清空输入
                 </button>
               </div>
+
+              {extractCandidates.length > 1 && (
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-200 dark:divide-gray-700 overflow-hidden">
+                  {extractCandidates.map((candidate, index) => (
+                    <button
+                      key={candidate.id}
+                      type="button"
+                      className="w-full px-3 py-2 text-left text-sm bg-gray-50 dark:bg-gray-900 hover:bg-gray-100 dark:hover:bg-gray-700"
+                      onClick={() => applyExtractCandidate(candidate, index)}
+                    >
+                      候选 {index + 1}：{candidate.mimeType} · {formatBase64Length(candidate.base64Length)} ·{' '}
+                      {candidate.source === 'data-url' ? '标准 Data URL' : '纯 Base64'}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </section>
         </div>
