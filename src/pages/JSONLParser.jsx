@@ -1,8 +1,18 @@
-import React, { useState, useCallback, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import SideNav from "../components/SideNav";
 import JsonNode from "../components/JsonNode";
 import TraceDialog from "../components/TraceDialog";
 import ValueRenderer from "../components/ValueRenderer";
+
+const LARGE_FILE_THRESHOLD = 50 * 1024 * 1024;
+const INDEX_CHUNK_SIZE = 4 * 1024 * 1024;
+
+const formatFileSize = (size) => {
+  if (size >= 1024 * 1024 * 1024) {
+    return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  }
+  return `${(size / 1024 / 1024).toFixed(2)} MB`;
+};
 
 const JSONLParser = () => {
   const [mode, setMode] = useState("normal"); // 'normal' or 'trace'
@@ -16,30 +26,176 @@ const JSONLParser = () => {
   const [goToLine, setGoToLine] = useState("");
   const [goToIndex, setGoToIndex] = useState("");
   const [copyStatus, setCopyStatus] = useState("复制");
+  const [largeFileInfo, setLargeFileInfo] = useState(null);
+  const [lineCount, setLineCount] = useState(0);
+  const [isIndexing, setIsIndexing] = useState(false);
+  const [indexProgress, setIndexProgress] = useState(0);
+  const [indexError, setIndexError] = useState("");
+  const [currentLineData, setCurrentLineData] = useState(null);
+  const [currentLineError, setCurrentLineError] = useState("");
+  const [isLineLoading, setIsLineLoading] = useState(false);
 
-  const handleCopy = () => {
-    if (selectedValue === null || selectedValue === undefined) return;
+  const fileRef = useRef(null);
+  const lineStartOffsetsRef = useRef([0]);
+  const scanJobRef = useRef(0);
+  const lineLoadJobRef = useRef(0);
+  const lastLineReadKeyRef = useRef("");
 
-    const textToCopy =
-      typeof selectedValue === "object"
-        ? JSON.stringify(selectedValue, null, 2)
-        : String(selectedValue);
+  const resetLargeFileState = useCallback(() => {
+    scanJobRef.current += 1;
+    lineLoadJobRef.current += 1;
+    lastLineReadKeyRef.current = "";
+    fileRef.current = null;
+    lineStartOffsetsRef.current = [0];
+    setLargeFileInfo(null);
+    setLineCount(0);
+    setIsIndexing(false);
+    setIndexProgress(0);
+    setIndexError("");
+    setCurrentLineData(null);
+    setCurrentLineError("");
+    setIsLineLoading(false);
+  }, []);
 
-    navigator.clipboard.writeText(textToCopy).then(
-      () => {
-        setCopyStatus("已复制!");
-        setTimeout(() => setCopyStatus("复制"), 1000);
-      },
-      (err) => {
-        console.error("Could not copy text: ", err);
-        setCopyStatus("失败");
-        setTimeout(() => setCopyStatus("复制"), 1000);
+  const buildLineIndex = useCallback(async (file, jobId) => {
+    const offsets = [0];
+    lineStartOffsetsRef.current = offsets;
+    setIsIndexing(true);
+    setIndexProgress(0);
+    setIndexError("");
+
+    let position = 0;
+    let lastByte = null;
+
+    try {
+      while (position < file.size) {
+        if (scanJobRef.current !== jobId) return;
+
+        const end = Math.min(position + INDEX_CHUNK_SIZE, file.size);
+        const buffer = await file.slice(position, end).arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+
+        for (let i = 0; i < bytes.length; i += 1) {
+          if (bytes[i] === 10) {
+            offsets.push(position + i + 1);
+          }
+        }
+
+        if (bytes.length > 0) {
+          lastByte = bytes[bytes.length - 1];
+        }
+
+        position = end;
+        setLineCount(Math.max(0, offsets.length - 1));
+        setIndexProgress(Math.round((position / file.size) * 100));
+
+        await new Promise((resolve) => setTimeout(resolve, 0));
       }
-    );
-  };
 
+      if (scanJobRef.current !== jobId) return;
+
+      const finalLineCount =
+        file.size === 0 ? 0 : lastByte === 10 ? offsets.length - 1 : offsets.length;
+      setLineCount(finalLineCount);
+      setIndexProgress(100);
+    } catch (error) {
+      if (scanJobRef.current === jobId) {
+        console.error("Build JSONL index failed:", error);
+        setIndexError("建立大文件索引失败，请确认文件可读。");
+      }
+    } finally {
+      if (scanJobRef.current === jobId) {
+        setIsIndexing(false);
+      }
+    }
+  }, []);
+
+  const startLargeFileMode = useCallback(
+    (file) => {
+      const jobId = scanJobRef.current + 1;
+      scanJobRef.current = jobId;
+      lineLoadJobRef.current += 1;
+      lastLineReadKeyRef.current = "";
+      fileRef.current = file;
+      lineStartOffsetsRef.current = [0];
+
+      setContent("");
+      setSelectedPath(null);
+      setTextareaValue(`已加载大文件: ${file.name}`);
+      setCurrentLineIndex(0);
+      setLargeFileInfo({ name: file.name, size: file.size });
+      setLineCount(0);
+      setCurrentLineData(null);
+      setCurrentLineError("");
+      setIsLineLoading(false);
+
+      buildLineIndex(file, jobId);
+    },
+    [buildLineIndex]
+  );
+
+  const readLargeFileLine = useCallback(
+    async (lineIndex) => {
+      const file = fileRef.current;
+      const offsets = lineStartOffsetsRef.current;
+      const start = offsets[lineIndex];
+      const nextStart = offsets[lineIndex + 1];
+
+      if (!file || start === undefined || (nextStart === undefined && isIndexing)) {
+        return;
+      }
+
+      const end = nextStart ?? file.size;
+      const readKey = `${lineIndex}:${start}:${end}`;
+      if (lastLineReadKeyRef.current === readKey) {
+        return;
+      }
+      lastLineReadKeyRef.current = readKey;
+
+      const jobId = lineLoadJobRef.current + 1;
+      lineLoadJobRef.current = jobId;
+      setIsLineLoading(true);
+      setCurrentLineError("");
+
+      try {
+        const rawLine = await file.slice(start, end).text();
+        const line = rawLine.replace(/\r?\n$/, "");
+
+        if (lineLoadJobRef.current !== jobId) return;
+
+        if (!line.trim()) {
+          setCurrentLineData({
+            error: `Line ${lineIndex + 1} is empty`,
+            content: line,
+          });
+          return;
+        }
+
+        try {
+          setCurrentLineData(JSON.parse(line));
+        } catch {
+          setCurrentLineData({
+            error: `Line ${lineIndex + 1} is not valid JSON`,
+            content: line,
+          });
+        }
+      } catch (error) {
+        if (lineLoadJobRef.current === jobId) {
+          console.error("Read JSONL line failed:", error);
+          setCurrentLineError("读取当前行失败。");
+          setCurrentLineData(null);
+        }
+      } finally {
+        if (lineLoadJobRef.current === jobId) {
+          setIsLineLoading(false);
+        }
+      }
+    },
+    [isIndexing]
+  );
 
   const parsedJson = useMemo(() => {
+    if (largeFileInfo) return null;
     if (!content) return null;
 
     try {
@@ -68,15 +224,20 @@ const JSONLParser = () => {
 
       return { error: "Invalid JSON or JSONL format" };
     }
-  }, [content]);
+  }, [content, largeFileInfo]);
+
+  const currentData = useMemo(() => {
+    if (largeFileInfo) return currentLineData;
+    if (parsedJson && Array.isArray(parsedJson)) {
+      return parsedJson[currentLineIndex];
+    }
+    return parsedJson;
+  }, [currentLineData, currentLineIndex, largeFileInfo, parsedJson]);
 
   const selectedValue = useMemo(() => {
-    if (!selectedPath || !parsedJson || !Array.isArray(parsedJson)) {
+    if (!selectedPath || !currentData) {
       return null;
     }
-
-    const currentData = parsedJson[currentLineIndex];
-    if (!currentData) return null;
 
     try {
       let value = currentData;
@@ -87,7 +248,35 @@ const JSONLParser = () => {
     } catch {
       return null;
     }
-  }, [parsedJson, currentLineIndex, selectedPath]);
+  }, [currentData, selectedPath]);
+
+  const navigableTotal = largeFileInfo
+    ? lineCount
+    : parsedJson && Array.isArray(parsedJson)
+      ? parsedJson.length
+      : 0;
+  const hasNavigableData = navigableTotal > 0;
+
+  const handleCopy = () => {
+    if (selectedValue === null || selectedValue === undefined) return;
+
+    const textToCopy =
+      typeof selectedValue === "object"
+        ? JSON.stringify(selectedValue, null, 2)
+        : String(selectedValue);
+
+    navigator.clipboard.writeText(textToCopy).then(
+      () => {
+        setCopyStatus("已复制!");
+        setTimeout(() => setCopyStatus("复制"), 1000);
+      },
+      (err) => {
+        console.error("Could not copy text: ", err);
+        setCopyStatus("失败");
+        setTimeout(() => setCopyStatus("复制"), 1000);
+      }
+    );
+  };
 
   const handleDrop = useCallback((event) => {
     event.preventDefault();
@@ -96,15 +285,22 @@ const JSONLParser = () => {
     const files = event.dataTransfer.files;
     if (files && files.length > 0) {
       const file = files[0];
+      if (file.size >= LARGE_FILE_THRESHOLD) {
+        startLargeFileMode(file);
+        return;
+      }
+
+      resetLargeFileState();
       const reader = new FileReader();
       reader.onload = (e) => {
         setContent(e.target.result);
         setTextareaValue(`已加载文件: ${file.name}`);
         setCurrentLineIndex(0);
+        setSelectedPath(null);
       };
       reader.readAsText(file);
     }
-  }, []);
+  }, [resetLargeFileState, startLargeFileMode]);
 
   const handleDragOver = useCallback((event) => {
     event.preventDefault();
@@ -116,19 +312,21 @@ const JSONLParser = () => {
   };
 
   const handleNext = () => {
-    if (parsedJson && Array.isArray(parsedJson)) {
-      setCurrentLineIndex((prev) => Math.min(parsedJson.length - 1, prev + 1));
+    if (hasNavigableData) {
+      setCurrentLineIndex((prev) => Math.min(navigableTotal - 1, prev + 1));
     }
   };
 
   const handleGoTo = () => {
     const lineNum = parseInt(goToLine, 10);
-    if (!isNaN(lineNum) && parsedJson && Array.isArray(parsedJson)) {
+    if (!isNaN(lineNum) && hasNavigableData) {
       const targetIndex = lineNum - 1;
-      if (targetIndex >= 0 && targetIndex < parsedJson.length) {
+      if (targetIndex >= 0 && targetIndex < navigableTotal) {
         setCurrentLineIndex(targetIndex);
+      } else if (largeFileInfo && isIndexing) {
+        alert(`当前已索引到 ${navigableTotal} 行，请等待索引继续推进后再跳转。`);
       } else {
-        alert(`无效的行号。请输入 1 到 ${parsedJson.length} 之间的数字。`);
+        alert(`无效的行号。请输入 1 到 ${navigableTotal} 之间的数字。`);
       }
     }
     setGoToLine("");
@@ -147,9 +345,20 @@ const JSONLParser = () => {
     setGoToIndex("");
   };
 
-  const handleSelect = ({ value, path }) => {
+  const handleSelect = ({ path }) => {
     setSelectedPath(path);
   };
+
+  useEffect(() => {
+    if (!largeFileInfo || lineCount === 0) return;
+
+    if (currentLineIndex >= lineCount) {
+      setCurrentLineIndex(Math.max(0, lineCount - 1));
+      return;
+    }
+
+    readLargeFileLine(currentLineIndex);
+  }, [currentLineIndex, largeFileInfo, lineCount, readLargeFileLine]);
 
   useEffect(() => {
     window.addEventListener("drop", handleDrop);
@@ -175,11 +384,27 @@ const JSONLParser = () => {
             rows="1"
             value={textareaValue}
             onChange={(e) => {
+              resetLargeFileState();
               setContent(e.target.value);
               setTextareaValue(e.target.value);
               setCurrentLineIndex(0);
+              setSelectedPath(null);
             }}
           ></textarea>
+          {largeFileInfo && (
+            <div className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+              <span>
+                大文件模式：{largeFileInfo.name}（{formatFileSize(largeFileInfo.size)}），
+                {isIndexing
+                  ? `正在建立行索引 ${indexProgress}% ，已发现 ${lineCount} 行`
+                  : `索引完成，共 ${lineCount} 行`}
+              </span>
+              <span className="ml-2">当前仅按需读取单行内容，避免一次性载入完整文件。</span>
+            </div>
+          )}
+          {indexError && (
+            <p className="mt-2 text-sm text-red-500">{indexError}</p>
+          )}
         </div>
 
         {/* Mode Switcher & Navigation Controls */}
@@ -207,7 +432,7 @@ const JSONLParser = () => {
             </button>
           </div>
 
-          {parsedJson && Array.isArray(parsedJson) && parsedJson.length > 0 && (
+          {hasNavigableData && (
             <div className="flex items-center space-x-2">
               {mode === "trace" && (
                 <>
@@ -237,7 +462,7 @@ const JSONLParser = () => {
               <button
                 className="px-4 py-2 rounded bg-gray-200 dark:bg-gray-700 disabled:opacity-50"
                 onClick={handleNext}
-                disabled={currentLineIndex === parsedJson.length - 1}
+                disabled={currentLineIndex >= navigableTotal - 1}
               >
                 下一条
               </button>
@@ -256,7 +481,7 @@ const JSONLParser = () => {
                 跳转
               </button>
               <span className="text-gray-600 dark:text-gray-400">
-                {`第 ${currentLineIndex + 1} / ${parsedJson.length} 条`}
+                {`第 ${currentLineIndex + 1} / ${navigableTotal} 条`}
               </span>
             </div>
           )}
@@ -269,10 +494,6 @@ const JSONLParser = () => {
               <div className="w-1/2 border-r p-4 overflow-auto">
                 <h2 className="text-lg font-semibold mb-2">结构</h2>
                 {(() => {
-                  const currentData =
-                    parsedJson && Array.isArray(parsedJson)
-                      ? parsedJson[currentLineIndex]
-                      : parsedJson;
                   if (currentData) {
                     return (
                       <JsonNode
@@ -281,6 +502,12 @@ const JSONLParser = () => {
                         onSelect={handleSelect}
                       />
                     );
+                  }
+                  if (isLineLoading) {
+                    return <p className="text-gray-500">正在读取当前行...</p>;
+                  }
+                  if (currentLineError) {
+                    return <p className="text-red-500">{currentLineError}</p>;
                   }
                   return <p className="text-gray-500">未加载数据</p>;
                 })()}
@@ -320,22 +547,18 @@ const JSONLParser = () => {
               </div>
               <div className="flex-1 overflow-auto">
                 {(() => {
-                  const currentLine =
-                    parsedJson && Array.isArray(parsedJson)
-                      ? parsedJson[currentLineIndex]
-                      : null;
-                  if (currentLine) {
+                  if (currentData) {
                     const fields = traceField
                       .split("||")
                       .map((f) => f.trim().replace("line.", ""));
                     let traceData = null;
                     for (const field of fields) {
                       if (
-                        currentLine &&
-                        typeof currentLine === "object" &&
-                        field in currentLine
+                        currentData &&
+                        typeof currentData === "object" &&
+                        field in currentData
                       ) {
-                        traceData = currentLine[field];
+                        traceData = currentData[field];
                         break;
                       }
                     }
@@ -358,6 +581,12 @@ const JSONLParser = () => {
                         </div>
                       );
                     }
+                  }
+                  if (isLineLoading) {
+                    return <p className="text-gray-500">正在读取当前行...</p>;
+                  }
+                  if (currentLineError) {
+                    return <p className="text-red-500">{currentLineError}</p>;
                   }
                   return (
                     <p className="text-gray-500">加载 JSONL 数据以查看轨迹。</p>
